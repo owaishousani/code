@@ -1,4 +1,3 @@
-#code
 
 import torch
 import numpy as np
@@ -12,12 +11,7 @@ warnings.filterwarnings('ignore')
 
 class QwenAttentionVisualizer:
     def __init__(self, model_name: str = "Qwen/Qwen-7B-Chat"):
-        """
-        Initialize the Qwen attention visualizer.
-        
-        Args:
-            model_name: HuggingFace model identifier for Qwen model
-        """
+       
         print(f"Loading {model_name}...")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
