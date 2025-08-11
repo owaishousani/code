@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LVLM Attention Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .input-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+        }
+
+        .input-section h3 {
+            margin-bottom: 15px;
+            color: #495057;
+            font-size: 1.1em;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            display: block;
+            padding: 12px 20px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s ease;
+            border: none;
+            font-size: 1em;
+        }
+
+        .file-input-label:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .text-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .text-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .analyze-btn {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 15px;
+        }
+
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .analyze-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            border-radius: 10px;
+            margin-top: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .tokens-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+        }
+
+        .tokens-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .token {
+            padding: 8px 12px;
+            background: #e9ecef;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            user-select: none;
+        }
+
+        .token:hover {
+            background: #dee2e6;
+            transform: translateY(-1px);
+        }
+
+        .token.selected {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border-color: #495057;
+            transform: translateY(-2px);
+            box-shadow: 0 3px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .token.image-token {
+            background: linear-gradient(45deg, #fd7e14, #e83e8c);
+            color: white;
+        }
+
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .controls-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-group label {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .control-input {
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+
+        .control-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .visualization-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+            min-height: 400px;
+        }
+
+        .attention-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .attention-map {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .attention-map h4 {
+            margin-bottom: 10px;
+            color: #495057;
+            font-size: 0.9em;
+        }
+
+        .heatmap-canvas {
+            width: 100%;
+            max-width: 180px;
+            height: 180px;
+            border-radius: 8px;
+            margin: 0 auto;
+            display: block;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            color: #6c757d;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e9ecef;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .metadata-section {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .metadata-section h4 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .metadata-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+
+        .metadata-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .metadata-label {
+            font-size: 0.8em;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+
+        .metadata-value {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 LVLM Attention Visualizer</h1>
+            <p>Interactive exploration of vision-language model attention patterns</p>
+        </div>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <!-- Image Input Section -->
+                <div class="input-section">
+                    <h3>📷 Upload Image</h3>
+                    <div class="file-input-wrapper">
+                        <input type="file" id="imageInput" class="file-input" accept="image/*">
+                        <label for="imageInput" class="file-input-label">Choose Image File</label>
+                    </div>
+                    <img id="imagePreview" class="image-preview" style="display: none;">
+                </div>
+
+                <!-- Text Input Section -->
+                <div class="input-section">
+                    <h3>💬 Text Prompt</h3>
+                    <textarea 
+                        id="textPrompt" 
+                        class="text-input" 
+                        placeholder="Enter your text prompt here... (e.g., 'Where is the red cat on the image?')"
+                    ></textarea>
+                    <button id="analyzeBtn" class="analyze-btn" disabled>🚀 Analyze Attention</button>
+                </div>
+
+                <!-- Tokens Section -->
+                <div class="tokens-section">
+                    <h3>🎯 Interactive Tokens</h3>
+                    <p style="color: #6c757d; font-size: 0.9em; margin-bottom: 10px;">
+                        Click on tokens to visualize their attention patterns. 
+                        <span style="background: linear-gradient(45deg, #fd7e14, #e83e8c); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em;">Image tokens</span> 
+                        represent visual patches.
+                    </p>
+                    <div id="tokensContainer" class="tokens-container">
+                        <div class="loading">
+                            <span>Upload an image and enter text to see tokens...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <!-- Controls Section -->
+                <div class="controls-section">
+                    <div class="control-group">
+                        <label for="layerSelect">🔄 Layer</label>
+                        <select id="layerSelect" class="control-input">
+                            <option value="-1">Last Layer</option>
+                            <option value="-2">Second to Last</option>
+                            <option value="-3">Third to Last</option>
+                            <option value="-4">Fourth to Last</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="headSelect">🎯 Attention Head</label>
+                        <select id="headSelect" class="control-input">
+                            <option value="all">All Heads (Average)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Status Messages -->
+                <div id="statusContainer"></div>
+
+                <!-- Visualization Section -->
+                <div class="visualization-section">
+                    <h3>📊 Attention Maps</h3>
+                    <div id="visualizationContainer">
+                        <div class="loading">
+                            <span>Select a token to visualize attention patterns...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metadata Section -->
+                <div id="metadataSection" class="metadata-section" style="display: none;">
+                    <h4>📈 Analysis Metadata</h4>
+                    <div id="metadataContainer" class="metadata-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class AttentionVisualizer {
+            constructor() {
+                this.currentImage = null;
+                this.currentTokens = [];
+                this.currentAttentionData = null;
+                this.selectedToken = null;
+                this.modelMetadata = null;
+                
+                this.initializeEventListeners();
+                this.generateSampleData(); // For demo purposes
+            }
+
+            initializeEventListeners() {
+                const imageInput = document.getElementById('imageInput');
+                const textPrompt = document.getElementById('textPrompt');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                const layerSelect = document.getElementById('layerSelect');
+                const headSelect = document.getElementById('headSelect');
+
+                imageInput.addEventListener('change', (e) => this.handleImageUpload(e));
+                textPrompt.addEventListener('input', () => this.validateInputs());
+                analyzeBtn.addEventListener('click', () => this.analyzeAttention());
+                layerSelect.addEventListener('change', () => this.updateVisualization());
+                headSelect.addEventListener('change', () => this.updateVisualization());
+            }
+
+            handleImageUpload(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        this.currentImage = e.target.result;
+                        const preview = document.getElementById('imagePreview');
+                        preview.src = this.currentImage;
+                        preview.style.display = 'block';
+                        this.validateInputs();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            validateInputs() {
+                const textPrompt = document.getElementById('textPrompt').value.trim();
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                
+                if (this.currentImage && textPrompt.length > 0) {
+                    analyzeBtn.disabled = false;
+                } else {
+                    analyzeBtn.disabled = true;
+                }
+            }
+
+            showStatus(message, type = 'info') {
+                const container = document.getElementById('statusContainer');
+                container.innerHTML = `<div class="status-message status-${type}">${message}</div>`;
+                
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        container.innerHTML = '';
+                    }, 5000);
+                }
+            }
+
+            async analyzeAttention() {
+                const textPrompt = document.getElementById('textPrompt').value.trim();
+                
+                this.showStatus('🔄 Analyzing attention patterns...', 'info');
+                
+                // Simulate API call - replace with actual model integration
+                try {
+                    await this.simulateAnalysis(textPrompt);
+                    this.showStatus('✅ Analysis completed successfully!', 'success');
+                } catch (error) {
+                    this.showStatus(`❌ Error: ${error.message}`, 'error');
+                }
+            }
+
+            async simulateAnalysis(textPrompt) {
+                // Simulate processing delay
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Generate sample tokens and attention data
+                this.currentTokens = this.tokenizeText(textPrompt);
+                this.currentAttentionData = this.generateAttentionData();
+                this.modelMetadata = {
+                    numLayers: 32,
+                    numHeads: 32,
+                    seqLength: this.currentTokens.length,
+                    imageTokens: 256
+                };
+                
+                this.updateTokensDisplay();
+                this.updateMetadata();
+                this.populateHeadSelector();
+            }
+
+            tokenizeText(text) {
+                // Simplified tokenization for demo
+                const words = text.toLowerCase().split(/\s+/);
+                const tokens = [];
+                
+                // Add special image tokens
+                for (let i = 0; i < 16; i++) {
+                    tokens.push({
+                        text: `<img_${i}>`,
+                        type: 'image',
+                        position: i
+                    });
+                }
+                
+                // Add text tokens
+                words.forEach((word, idx) => {
+                    if (word.length > 4) {
+                        // Split longer words into subwords
+                        tokens.push({
+                            text: `▁${word.slice(0, -2)}`,
+                            type: 'text',
+                            position: tokens.length
+                        });
+                        tokens.push({
+                            text: word.slice(-2),
+                            type: 'text',
+                            position: tokens.length
+                        });
+                    } else {
+                        tokens.push({
+                            text: `▁${word}`,
+                            type: 'text',
+                            position: tokens.length
+                        });
+                    }
+                });
+                
+                return tokens;
+            }
+
+            generateAttentionData() {
+                const numLayers = 32;
+                const numHeads = 32;
+                const seqLen = this.currentTokens.length;
+                
+                const attentionData = {};
+                
+                for (let layer = 0; layer < numLayers; layer++) {
+                    attentionData[layer] = {};
+                    for (let head = 0; head < numHeads; head++) {
+                        // Generate realistic attention patterns
+                        const attention = [];
+                        for (let i = 0; i < seqLen; i++) {
+                            const row = [];
+                            for (let j = 0; j < seqLen; j++) {
+                                // Create attention patterns with some structure
+                                let value = Math.random() * 0.1;
+                                
+                                // Higher attention to nearby tokens
+                                if (Math.abs(i - j) < 3) {
+                                    value += Math.random() * 0.3;
+                                }
+                                
+                                // Higher attention from text to image tokens
+                                if (this.currentTokens[i].type === 'text' && 
+                                    this.currentTokens[j].type === 'image') {
+                                    value += Math.random() * 0.5;
+                                }
+                                
+                                row.push(value);
+                            }
+                            attention.push(row);
+                        }
+                        attentionData[layer][head] = attention;
+                    }
+                }
+                
+                return attentionData;
+            }
+
+            updateTokensDisplay() {
+                const container = document.getElementById('tokensContainer');
+                container.innerHTML = '';
+                
+                this.currentTokens.forEach((token, idx) => {
+                    const tokenElement = document.createElement('div');
+                    tokenElement.className = `token ${token.type === 'image' ? 'image-token' : ''}`;
+                    tokenElement.textContent = token.text;
+                    tokenElement.dataset.index = idx;
+                    
+                    tokenElement.addEventListener('click', () => this.selectToken(idx));
+                    container.appendChild(tokenElement);
+                });
+            }
+
+            selectToken(tokenIndex) {
+                // Remove previous selection
+                document.querySelectorAll('.token').forEach(el => {
+                    el.classList.remove('selected');
+                });
+                
+                // Add selection to clicked token
+                const tokenElement = document.querySelector(`[data-index="${tokenIndex}"]`);
+                tokenElement.classList.add('selected');
+                
+                this.selectedToken = tokenIndex;
+                this.updateVisualization();
+            }
+
+            updateVisualization() {
+                if (!this.selectedToken === null || !this.currentAttentionData) {
+                    return;
+                }
+                
+                const container = document.getElementById('visualizationContainer');
+                const layerSelect = document.getElementById('layerSelect');
+                const headSelect = document.getElementById('headSelect');
+                
+                const layerIdx = parseInt(layerSelect.value);
+                const headIdx = headSelect.value;
+                
+                // Convert negative layer index
+                const actualLayer = layerIdx < 0 ? 
+                    this.modelMetadata.numLayers + layerIdx : layerIdx;
+                
+                container.innerHTML = '<h4>🎯 Attention from Selected Token</h4>';
+                
+                if (headIdx === 'all') {
+                    // Show multiple heads
+                    this.renderMultiHeadAttention(container, actualLayer);
+                } else {
+                    // Show single head
+                    this.renderSingleHeadAttention(container, actualLayer, parseInt(headIdx));
+                }
+            }
+
+            renderMultiHeadAttention(container, layer) {
+                const grid = document.createElement('div');
+                grid.className = 'attention-grid';
+                
+                // Show first 8 heads
+                for (let head = 0; head < Math.min(8, this.modelMetadata.numHeads); head++) {
+                    const mapDiv = this.createAttentionMap(layer, head);
+                    grid.appendChild(mapDiv);
+                }
+                
+                container.appendChild(grid);
+            }
+
+            renderSingleHeadAttention(container, layer, head) {
+                const mapDiv = this.createAttentionMap(layer, head, true);
+                mapDiv.style.maxWidth = '400px';
+                mapDiv.style.margin = '0 auto';
+                container.appendChild(mapDiv);
+            }
+
+            createAttentionMap(layer, head, large = false) {
+                const mapDiv = document.createElement('div');
+                mapDiv.className = 'attention-map';
+                
+                const title = document.createElement('h4');
+                title.textContent = `Layer ${layer}, Head ${head}`;
+                mapDiv.appendChild(title);
+                
+                const canvas = document.createElement('canvas');
+                canvas.className = 'heatmap-canvas';
+                canvas.width = large ? 300 : 180;
+                canvas.height = large ? 300 : 180;
+                
+                this.drawAttentionHeatmap(canvas, layer, head);
+                mapDiv.appendChild(canvas);
+                
+                return mapDiv;
+            }
+
+            drawAttentionHeatmap(canvas, layer, head) {
+                const ctx = canvas.getContext('2d');
+                const attention = this.currentAttentionData[layer][head][this.selectedToken];
+                
+                // Create attention visualization
+                const imageData = ctx.createImageData(canvas.width, canvas.height);
+                const data = imageData.data;
+                
+                // Normalize attention values
+                const maxVal = Math.max(...attention);
+                const minVal = Math.min(...attention);
+                
+                for (let i = 0; i < canvas.height; i++) {
+                    for (let j = 0; j < canvas.width; j++) {
+                        const tokenIdx = Math.floor((i / canvas.height) * attention.length);
+                        const attVal = attention[tokenIdx];
+                        const normalized = (attVal - minVal) / (maxVal - minVal);
+                        
+                        const pixelIdx = (i * canvas.width + j) * 4;
+                        
+                        // Create blue-to-red heatmap
+                        if (normalized < 0.5) {
+                            data[pixelIdx] = 0;     // R
+                            data[pixelIdx + 1] = 0; // G
+                            data[pixelIdx + 2] = Math.floor(255 * (normalized * 2)); // B
+                        } else {
+                            data[pixelIdx] = Math.floor(255 * ((normalized - 0.5) * 2)); // R
+                            data[pixelIdx + 1] = 0; // G
+                            data[pixelIdx + 2] = 255 - Math.floor(255 * ((normalized - 0.5) * 2)); // B
+                        }
+                        data[pixelIdx + 3] = 255; // A
+                    }
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+                
+                // Add token type indicator
+                const selectedToken = this.currentTokens[this.selectedToken];
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillRect(5, 5, canvas.width - 10, 25);
+                ctx.fillStyle = selectedToken.type === 'image' ? '#fd7e14' : '#495057';
+                ctx.font = '12px Arial';
+                ctx.fillText(`Token: ${selectedToken.text}`, 10, 20);
+            }
+
+            populateHeadSelector() {
+                const headSelect = document.getElementById('headSelect');
+                headSelect.innerHTML = '<option value="all">All Heads (Average)</option>';
+                
+                for (let i = 0; i < Math.min(16, this.modelMetadata.numHeads); i++) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = `Head ${i}`;
+                    headSelect.appendChild(option);
+                }
+            }
+
+            updateMetadata() {
+                const section = document.getElementById('metadataSection');
+                const container = document.getElementById('metadataContainer');
+                
+                container.innerHTML = `
+                    <div class="metadata-item">
+                        <div class="metadata-label">Layers</div>
+                        <div class="metadata-value">${this.modelMetadata.numLayers}</div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-label">Heads per Layer</div>
+                        <div class="metadata-value">${this.modelMetadata.numHeads}</div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-label">Sequence Length</div>
+                        <div class="metadata-value">${this.modelMetadata.seqLength}</div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-label">Image Tokens</div>
+                        <div class="metadata-value">${this.modelMetadata.imageTokens}</div>
+                    </div>
+                `;
+                
+                section.style.display = 'block';
+            }
+
+            generateSampleData() {
+                // Pre-populate with sample data for demonstration
+                document.getElementById('textPrompt').value = "Where is the red cat on the image?";
+                this.validateInputs();
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            new AttentionVisualizer();
+        });
+    </script>
+</body>
+</html>
