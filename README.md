@@ -1,16 +1,27 @@
-"""
+
 import torch
+
 import numpy as np
+
 import matplotlib.pyplot as plt
+
 import seaborn as sns
+
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
 import re
+
 from typing import List, Dict, Tuple, Optional
+
 import warnings
+
 warnings.filterwarnings('ignore')
-"""
+
+
 class QwenAttentionVisualizer:
+
     def __init__(self, model_name: str = "Qwen/Qwen-7B-Chat"):
+
         """
         Initialize the Qwen attention visualizer.
         
