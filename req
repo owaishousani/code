@@ -1,0 +1,210 @@
+# Requirements for Qwen Vision-Language Attention Visualizer
+
+## requirements.txt
+flask==2.3.3
+flask-cors==4.0.0
+torch>=2.0.0
+transformers>=4.37.0
+pillow>=9.0.0
+numpy>=1.21.0
+opencv-python>=4.5.0
+accelerate>=0.20.0
+
+## Installation Instructions
+
+### 1. Create Virtual Environment
+```bash
+python -m venv qwen_attention_env
+source qwen_attention_env/bin/activate  # On Windows: qwen_attention_env\Scripts\activate
+```
+
+### 2. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Install Qwen2-VL (if using Qwen2-VL models)
+```bash
+pip install qwen-vl-utils
+```
+
+### 4. Additional GPU Setup (if using CUDA)
+```bash
+# For CUDA 11.8
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# For CUDA 12.1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+## Usage Instructions
+
+### 1. Basic Usage
+```bash
+# Start the Flask server with default settings
+python app.py
+
+# Start with custom model
+python app.py --model Qwen/Qwen2-VL-7B-Instruct
+
+# Start with custom host and port
+python app.py --host 0.0.0.0 --port 8080
+
+# Start in debug mode
+python app.py --debug
+```
+
+### 2. Command Line Arguments
+- `--model`: Specify the Qwen model to use (default: Qwen/Qwen2-VL-2B-Instruct)
+- `--host`: Host address (default: 127.0.0.1)
+- `--port`: Port number (default: 5000)
+- `--debug`: Enable debug mode
+
+### 3. Supported Models
+- Qwen/Qwen2-VL-2B-Instruct (recommended for testing)
+- Qwen/Qwen2-VL-7B-Instruct
+- Qwen/Qwen-VL-Chat
+- Other Qwen vision-language models
+
+### 4. Using the Web Interface
+
+1. **Upload Image**: Click "Choose Image File" and select your image
+2. **Enter Text**: Type your prompt in the text area
+3. **Analyze**: Click "🚀 Analyze Attention" to process
+4. **Explore Tokens**: Click on any token to see its attention patterns
+5. **Adjust Views**: 
+   - Select different layers from the dropdown
+   - Choose specific attention heads or view all heads
+   - View metadata about the analysis
+
+### 5. API Endpoints
+
+#### POST /api/analyze
+Analyze attention patterns for image and text.
+
+**Request:**
+- Method: POST
+- Content-Type: multipart/form-data
+- Body:
+  - `image`: Image file
+  - `text_prompt`: Text string
+
+**Response:**
+```json
+{
+  "success": true,
+  "attention_data": {...},
+  "tokens": [...],
+  "metadata": {...}
+}
+```
+
+#### GET /api/health
+Check server health and model status.
+
+#### GET /api/model/info
+Get information about the loaded model.
+
+### 6. File Structure
+```
+qwen_attention_visualizer/
+├── app.py                 # Main Flask application
+├── requirements.txt       # Python dependencies
+├── README.md             # This file
+└── static/               # Static files (if needed)
+```
+
+### 7. Memory Requirements
+
+| Model | GPU Memory | RAM |
+|-------|------------|-----|
+| Qwen2-VL-2B | ~6GB | ~8GB |
+| Qwen2-VL-7B | ~16GB | ~16GB |
+| Qwen-VL-Chat | ~14GB | ~14GB |
+
+### 8. Troubleshooting
+
+#### Common Issues:
+
+1. **CUDA Out of Memory**
+   ```bash
+   # Use smaller model or reduce batch size
+   python app.py --model Qwen/Qwen2-VL-2B-Instruct
+   ```
+
+2. **Model Download Issues**
+   ```bash
+   # Set HuggingFace cache directory
+   export HF_HOME=/path/to/large/disk
+   ```
+
+3. **Import Errors**
+   ```bash
+   # Install transformers from source for latest features
+   pip install git+https://github.com/huggingface/transformers.git
+   ```
+
+4. **Slow Loading**
+   - Models are downloaded on first use
+   - Subsequent runs will be faster
+   - Consider using smaller models for development
+
+#### Performance Tips:
+
+1. **Use GPU**: Ensure CUDA is properly installed
+2. **Model Caching**: Models are cached after first download
+3. **Memory Management**: Close other GPU-intensive applications
+4. **Batch Processing**: Process multiple images by modifying the API
+
+### 9. Development and Customization
+
+#### Adding New Models:
+1. Update the model loading logic in `QwenVLAttentionExtractor`
+2. Adjust token detection patterns for different architectures
+3. Test with sample images and prompts
+
+#### Customizing Visualizations:
+1. Modify the `drawAttentionHeatmap` function in the HTML
+2. Add new visualization types in the Flask routes
+3. Implement additional analysis metrics
+
+#### Extending the API:
+1. Add new endpoints in `app.py`
+2. Implement batch processing capabilities
+3. Add export functionality for attention maps
+
+### 10. Production Deployment
+
+#### Using Gunicorn:
+```bash
+pip install gunicorn
+gunicorn -w 1 -b 0.0.0.0:5000 app:app
+```
+
+#### Using Docker:
+```dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+EXPOSE 5000
+CMD ["python", "app.py", "--host", "0.0.0.0"]
+```
+
+#### Environment Variables:
+```bash
+export QWEN_MODEL_NAME="Qwen/Qwen2-VL-7B-Instruct"
+export FLASK_HOST="0.0.0.0"
+export FLASK_PORT="5000"
+```
+
+### 11. License and Attribution
+
+This tool is built on top of:
+- Qwen models by Alibaba Cloud
+- Transformers library by Hugging Face
+- Flask web framework
+- PyTorch deep learning framework
+
+Please ensure you comply with the respective licenses when using this tool.
