@@ -1,3 +1,5 @@
+#code
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -263,7 +265,6 @@ class QwenAttentionVisualizer:
                 print(f"    {token:15} -> {attention:.4f} (pos {idx})")
 
 
-# Example usage
 def main():
     # Initialize visualizer
     # Note: Change model name based on available Qwen models
