@@ -1,0 +1,504 @@
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from transformers import AutoTokenizer, AutoProcessor
+from PIL import Image, ImageDraw, ImageFont
+import cv2
+import re
+from typing import List, Dict, Tuple, Optional, Union
+import warnings
+import os
+from pathlib import Path
+warnings.filterwarnings('ignore')
+
+# Try to import Qwen-VL specific modules
+try:
+    from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
+    QWEN2VL_AVAILABLE = True
+except ImportError:
+    QWEN2VL_AVAILABLE = False
+    print("Qwen2VL not available, using generic approach")
+
+class QwenVLCrossModalVisualizer:
+    def __init__(self, model_name: str = "Qwen/Qwen2-VL-7B-Instruct"):
+        """
+        Initialize the Qwen Vision-Language cross-modal attention visualizer.
+        
+        Args:
+            model_name: HuggingFace model identifier for Qwen-VL model
+        """
+        print(f"Loading {model_name}...")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_name = model_name
+        
+        # Load processor and model
+        if QWEN2VL_AVAILABLE and "Qwen2-VL" in model_name:
+            self.processor = Qwen2VLProcessor.from_pretrained(model_name)
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation="flash_attention_2" if torch.cuda.is_available() else "eager"
+            )
+        else:
+            # Fallback to generic processor
+            try:
+                self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+                from transformers import AutoModelForCausalLM
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16,
+                    device_map="auto",
+                    trust_remote_code=True
+                )
+            except Exception as e:
+                print(f"Error loading model: {e}")
+                print("Please ensure you have the correct model name and dependencies installed")
+                raise
+        
+        self.model.eval()
+        print(f"Model loaded on {self.device}")
+        
+        # Get model configuration
+        self.config = self.model.config
+        self.num_layers = getattr(self.config, 'num_hidden_layers', 32)
+        self.num_heads = getattr(self.config, 'num_attention_heads', 32)
+        
+    def load_and_preprocess_image(self, image_path: str) -> Tuple[Image.Image, np.ndarray]:
+        """
+        Load and preprocess image for the model.
+        
+        Args:
+            image_path: Path to the input image
+            
+        Returns:
+            Tuple of (PIL Image, numpy array)
+        """
+        if isinstance(image_path, str):
+            image = Image.open(image_path).convert('RGB')
+        else:
+            image = image_path.convert('RGB')
+            
+        image_array = np.array(image)
+        return image, image_array
+    
+    def extract_cross_modal_attention(self, 
+                                    image: Union[str, Image.Image], 
+                                    text_prompt: str) -> Tuple[torch.Tensor, Dict]:
+        """
+        Extract cross-modal attention between text and image.
+        
+        Args:
+            image: Image path or PIL Image
+            text_prompt: Text prompt
+            
+        Returns:
+            Tuple of (attention_weights, metadata)
+        """
+        # Load and preprocess image
+        if isinstance(image, str):
+            pil_image, _ = self.load_and_preprocess_image(image)
+        else:
+            pil_image = image
+        
+        # Prepare inputs
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": pil_image},
+                    {"type": "text", "text": text_prompt}
+                ]
+            }
+        ]
+        
+        # Process inputs
+        inputs = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        
+        # Tokenize and prepare for model
+        model_inputs = self.processor(
+            text=[inputs], 
+            images=[pil_image], 
+            return_tensors="pt"
+        ).to(self.device)
+        
+        # Forward pass with attention outputs
+        with torch.no_grad():
+            outputs = self.model(
+                **model_inputs,
+                output_attentions=True,
+                return_dict=True
+            )
+        
+        # Extract attention weights
+        attentions = outputs.attentions  # List of attention tensors for each layer
+        
+        # Get tokenized text for analysis
+        tokenized = self.processor.tokenizer(inputs, return_tensors="pt")
+        tokens = self.processor.tokenizer.convert_ids_to_tokens(tokenized.input_ids[0])
+        
+        # Stack attention tensors: [layers, batch, heads, seq_len, seq_len]
+        attention_tensor = torch.stack(attentions)
+        
+        metadata = {
+            'tokens': tokens,
+            'num_layers': len(attentions),
+            'num_heads': attentions[0].shape[2] if attentions else 0,
+            'seq_length': attentions[0].shape[3] if attentions else 0,
+            'image_tokens_start': self._find_image_token_positions(tokens),
+            'text_tokens': self._find_text_token_positions(tokens, text_prompt)
+        }
+        
+        return attention_tensor, metadata
+    
+    def _find_image_token_positions(self, tokens: List[str]) -> List[int]:
+        """Find positions of image tokens in the sequence."""
+        image_positions = []
+        for i, token in enumerate(tokens):
+            # Look for image-related tokens (model-specific)
+            if any(marker in token.lower() for marker in ['<image>', '<img>', 'vision', 'visual']):
+                image_positions.append(i)
+            # For Qwen2-VL, look for vision tokens
+            elif 'vision' in token.lower() or token.startswith('<|vision_'):
+                image_positions.append(i)
+        return image_positions
+    
+    def _find_text_token_positions(self, tokens: List[str], target_text: str) -> Dict[str, List[int]]:
+        """Find positions of specific text tokens."""
+        target_words = target_text.lower().split()
+        text_positions = {'all': [], 'target': []}
+        
+        # Find all text tokens (non-special tokens)
+        for i, token in enumerate(tokens):
+            if not token.startswith('<') and not token.startswith('[') and token.strip():
+                text_positions['all'].append(i)
+                
+                # Check if this token is part of target phrase
+                token_clean = token.lower().strip('▁').replace('▁', ' ')
+                if any(word in token_clean for word in target_words):
+                    text_positions['target'].append(i)
+        
+        return text_positions
+    
+    def create_attention_heatmap_on_image(self, 
+                                        image: Union[str, Image.Image],
+                                        text_prompt: str,
+                                        target_phrase: str,
+                                        layer_idx: int = -1,
+                                        head_idx: Optional[int] = None,
+                                        save_path: Optional[str] = None) -> np.ndarray:
+        """
+        Create attention heatmap overlaid on the input image.
+        
+        Args:
+            image: Input image
+            text_prompt: Text prompt
+            target_phrase: Phrase to analyze attention for
+            layer_idx: Layer index (-1 for last layer)
+            head_idx: Head index (None for average across all heads)
+            save_path: Path to save the result
+            
+        Returns:
+            Attention heatmap as numpy array
+        """
+        # Extract attention
+        attention_tensor, metadata = self.extract_cross_modal_attention(image, text_prompt)
+        
+        if isinstance(image, str):
+            pil_image, image_array = self.load_and_preprocess_image(image)
+        else:
+            pil_image = image
+            image_array = np.array(image)
+        
+        # Find target text tokens
+        target_tokens = []
+        for i, token in enumerate(metadata['tokens']):
+            token_clean = token.lower().strip('▁').replace('▁', ' ')
+            if any(word in token_clean for word in target_phrase.lower().split()):
+                target_tokens.append(i)
+        
+        if not target_tokens:
+            print(f"Warning: Could not find tokens for '{target_phrase}'")
+            return image_array
+        
+        print(f"Found target tokens at positions: {target_tokens}")
+        print(f"Target tokens: {[metadata['tokens'][i] for i in target_tokens]}")
+        
+        # Get attention weights for specified layer
+        layer_idx = layer_idx if layer_idx >= 0 else metadata['num_layers'] + layer_idx
+        layer_attention = attention_tensor[layer_idx, 0]  # [heads, seq_len, seq_len]
+        
+        # Average across heads or use specific head
+        if head_idx is None:
+            attention_weights = layer_attention.mean(dim=0)  # [seq_len, seq_len]
+        else:
+            attention_weights = layer_attention[head_idx]  # [seq_len, seq_len]
+        
+        # Extract cross-modal attention from target text tokens to image tokens
+        image_positions = metadata['image_tokens_start']
+        if not image_positions:
+            # If no explicit image tokens, assume first N tokens are image-related
+            # This is a heuristic and may need adjustment based on model architecture
+            estimated_image_tokens = min(256, metadata['seq_length'] // 4)  # Rough estimate
+            image_positions = list(range(estimated_image_tokens))
+        
+        # Get attention from target text tokens to image positions
+        cross_modal_attention = attention_weights[target_tokens][:, image_positions]
+        
+        # Average attention across target tokens
+        avg_attention = cross_modal_attention.mean(dim=0).cpu().numpy()
+        
+        # Create spatial attention map
+        # This assumes image tokens correspond to spatial patches
+        # You may need to adjust based on actual model architecture
+        spatial_size = int(np.sqrt(len(avg_attention)))
+        if spatial_size * spatial_size != len(avg_attention):
+            # Handle non-square arrangements
+            spatial_size = int(np.ceil(np.sqrt(len(avg_attention))))
+            padded_attention = np.zeros(spatial_size * spatial_size)
+            padded_attention[:len(avg_attention)] = avg_attention
+            avg_attention = padded_attention
+        
+        attention_map = avg_attention.reshape(spatial_size, spatial_size)
+        
+        # Resize attention map to match image dimensions
+        h, w = image_array.shape[:2]
+        attention_resized = cv2.resize(attention_map, (w, h))
+        
+        # Normalize attention values
+        attention_normalized = (attention_resized - attention_resized.min()) / (
+            attention_resized.max() - attention_resized.min() + 1e-8
+        )
+        
+        return attention_normalized
+    
+    def visualize_cross_modal_attention(self,
+                                      image: Union[str, Image.Image],
+                                      text_prompt: str,
+                                      target_phrase: str,
+                                      layers_to_show: Optional[List[int]] = None,
+                                      save_path: Optional[str] = None):
+        """
+        Create comprehensive cross-modal attention visualization.
+        
+        Args:
+            image: Input image
+            text_prompt: Text prompt
+            target_phrase: Target phrase to analyze
+            layers_to_show: List of layer indices to visualize
+            save_path: Path to save the visualization
+        """
+        # Load image
+        if isinstance(image, str):
+            pil_image, image_array = self.load_and_preprocess_image(image)
+        else:
+            pil_image = image
+            image_array = np.array(image)
+        
+        # Set default layers
+        if layers_to_show is None:
+            layers_to_show = [-4, -3, -2, -1]  # Last 4 layers
+        
+        # Create figure with subplots
+        fig, axes = plt.subplots(2, len(layers_to_show) + 1, 
+                               figsize=(4 * (len(layers_to_show) + 1), 8))
+        
+        # Show original image
+        axes[0, 0].imshow(image_array)
+        axes[0, 0].set_title('Original Image')
+        axes[0, 0].axis('off')
+        axes[1, 0].axis('off')
+        
+        # Create attention heatmaps for each layer
+        for i, layer_idx in enumerate(layers_to_show):
+            # Get attention heatmap
+            attention_map = self.create_attention_heatmap_on_image(
+                pil_image, text_prompt, target_phrase, layer_idx
+            )
+            
+            # Show attention heatmap
+            axes[0, i + 1].imshow(attention_map, cmap='jet', alpha=0.7)
+            axes[0, i + 1].set_title(f'Layer {layer_idx}\nAttention for "{target_phrase}"')
+            axes[0, i + 1].axis('off')
+            
+            # Show attention overlaid on image
+            overlay = image_array.copy().astype(np.float32) / 255.0
+            attention_colored = plt.cm.jet(attention_map)[:, :, :3]
+            blended = 0.6 * overlay + 0.4 * attention_colored
+            
+            axes[1, i + 1].imshow(np.clip(blended, 0, 1))
+            axes[1, i + 1].set_title(f'Layer {layer_idx} Overlay')
+            axes[1, i + 1].axis('off')
+        
+        plt.suptitle(f'Cross-Modal Attention Analysis\nPrompt: "{text_prompt}"', fontsize=14)
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"Visualization saved to {save_path}")
+        
+        plt.show()
+    
+    def create_token_image_attention_matrix(self,
+                                          image: Union[str, Image.Image],
+                                          text_prompt: str,
+                                          layer_idx: int = -1,
+                                          save_path: Optional[str] = None):
+        """
+        Create a detailed attention matrix between all text tokens and image regions.
+        
+        Args:
+            image: Input image
+            text_prompt: Text prompt
+            layer_idx: Layer to analyze
+            save_path: Path to save the visualization
+        """
+        # Extract attention
+        attention_tensor, metadata = self.extract_cross_modal_attention(image, text_prompt)
+        
+        # Get layer attention
+        layer_idx = layer_idx if layer_idx >= 0 else metadata['num_layers'] + layer_idx
+        layer_attention = attention_tensor[layer_idx, 0].mean(dim=0)  # Average across heads
+        
+        # Get text token positions
+        text_positions = metadata['text_tokens']['all']
+        image_positions = metadata['image_tokens_start']
+        
+        if not image_positions:
+            # Estimate image token positions
+            estimated_image_tokens = min(256, metadata['seq_length'] // 4)
+            image_positions = list(range(estimated_image_tokens))
+        
+        # Extract text-to-image attention
+        text_to_image_attention = layer_attention[text_positions][:, image_positions]
+        
+        # Create visualization
+        plt.figure(figsize=(12, 8))
+        
+        # Get text tokens for labels
+        text_tokens = [metadata['tokens'][i] for i in text_positions]
+        text_tokens = [token.replace('▁', '') for token in text_tokens]
+        
+        sns.heatmap(text_to_image_attention.cpu().numpy(),
+                   yticklabels=text_tokens,
+                   xticklabels=[f"Img_{i}" for i in range(len(image_positions))],
+                   cmap='Blues',
+                   cbar=True)
+        
+        plt.title(f'Text-to-Image Attention Matrix (Layer {layer_idx})\nPrompt: "{text_prompt}"')
+        plt.xlabel('Image Patches')
+        plt.ylabel('Text Tokens')
+        plt.xticks(rotation=45)
+        plt.yticks(rotation=0)
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"Attention matrix saved to {save_path}")
+        
+        plt.tight_layout()
+        plt.show()
+        
+        return text_to_image_attention.cpu().numpy()
+
+
+# Example usage and demo functions
+def demo_cross_modal_attention():
+    """
+    Demonstrate cross-modal attention visualization.
+    """
+    # Initialize the visualizer
+    try:
+        visualizer = QwenVLCrossModalVisualizer("Qwen/Qwen2-VL-2B-Instruct")  # Smaller model for demo
+    except:
+        print("Error: Could not load Qwen2-VL model. Please ensure you have:")
+        print("1. Installed transformers with Qwen2-VL support")
+        print("2. Proper model access permissions")
+        print("3. Sufficient GPU memory")
+        return
+    
+    # Example image and prompt
+    # You would replace this with your actual image path
+    image_path = "path/to/your/image.jpg"  # Replace with actual image path
+    text_prompt = "Where is the red cat on the image?"
+    target_phrase = "red cat"
+    
+    print(f"Analyzing cross-modal attention for: '{target_phrase}'")
+    
+    # Create comprehensive visualization
+    try:
+        visualizer.visualize_cross_modal_attention(
+            image=image_path,
+            text_prompt=text_prompt,
+            target_phrase=target_phrase,
+            layers_to_show=[-4, -3, -2, -1],
+            save_path="cross_modal_attention_analysis.png"
+        )
+        
+        # Create detailed attention matrix
+        visualizer.create_token_image_attention_matrix(
+            image=image_path,
+            text_prompt=text_prompt,
+            layer_idx=-1,
+            save_path="text_image_attention_matrix.png"
+        )
+        
+    except Exception as e:
+        print(f"Error during visualization: {e}")
+        print("This might be due to model architecture differences or input format issues")
+
+
+def create_sample_image_for_demo():
+    """
+    Create a sample image with a red cat for demonstration.
+    """
+    # Create a simple test image
+    img = Image.new('RGB', (400, 300), color='lightblue')
+    draw = ImageDraw.Draw(img)
+    
+    # Draw a simple red cat-like shape
+    # Body (oval)
+    draw.ellipse([150, 150, 250, 220], fill='red', outline='darkred', width=2)
+    
+    # Head (circle)
+    draw.ellipse([170, 100, 230, 160], fill='red', outline='darkred', width=2)
+    
+    # Ears (triangles)
+    draw.polygon([(175, 110), (185, 90), (195, 110)], fill='red', outline='darkred')
+    draw.polygon([(205, 110), (215, 90), (225, 110)], fill='red', outline='darkred')
+    
+    # Eyes
+    draw.ellipse([185, 120, 195, 130], fill='black')
+    draw.ellipse([205, 120, 215, 130], fill='black')
+    
+    # Tail
+    draw.ellipse([240, 140, 280, 160], fill='red', outline='darkred', width=2)
+    
+    # Add some background elements
+    draw.rectangle([50, 250, 100, 280], fill='brown')  # Table leg
+    draw.rectangle([300, 250, 350, 280], fill='brown')  # Table leg
+    draw.rectangle([40, 240, 360, 250], fill='brown')  # Table top
+    
+    img.save('sample_red_cat.jpg')
+    print("Sample image created: sample_red_cat.jpg")
+    return 'sample_red_cat.jpg'
+
+
+if __name__ == "__main__":
+    # Create sample image if it doesn't exist
+    sample_image = create_sample_image_for_demo()
+    
+    # Run demo with sample image
+    print("Running cross-modal attention analysis demo...")
+    print("Note: This requires a properly configured Qwen2-VL model")
+    
+    # Uncomment the following line to run the actual demo
+    # demo_cross_modal_attention()
+    
+    print("\nTo use this code:")
+    print("1. Install required dependencies: transformers, torch, PIL, opencv-python, matplotlib, seaborn")
+    print("2. Replace 'path/to/your/image.jpg' with your actual image path")
+    print("3. Ensure you have access to Qwen2-VL models")
+    print("4. Run the demo_cross_modal_attention() function")
